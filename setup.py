@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='rad',
+    name='pytorch-rad',
     version='0.1.0',
     author='iDLab',
     author_email='lyo.tobias@foxmail.com',
