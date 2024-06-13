@@ -8,7 +8,17 @@ Training deep reinforcement learning (RL) agents necessitates overcoming the hig
 3. Pytorch installed.
 
 ## Quick Start
-All optimizers have been implemented in the Python file "optimizers.py", including RAD, Adam, SGD (equaling HB when momentum is not 0), DLPF, NAG, RGD, NAdam, SWATS, AdamW. All of them can be used as any other `torch.optim.Optimizer`
+Installing the package is straightforward with pip directly from this git repository or from pypi with either of the following commands.
+
+```bash
+pip install git+https://github.com/TobiasLv/RAD
+```
+
+```bash
+pip install pytorch-rad
+```
+
+All optimizers have been implemented in the Python file "optimizers.py", including RAD, Adam, SGD (equaling HB when momentum is not 0), DLPF, NAG, RGD, NAdam, SWATS, AdamW. After installing the package, you can import any of these optimizers and use them in your code as any other `torch.optim.Optimizer`
 
 ```python
 from rad.optim import RAD, Adam, SGD, DLPF, RGD, NAG, NAdam, SWATS, AdamW
