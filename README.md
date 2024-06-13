@@ -11,7 +11,7 @@ Training deep reinforcement learning (RL) agents necessitates overcoming the hig
 All optimizers have been implemented in the Python file "optimizers.py", including RAD, Adam, SGD (equaling HB when momentum is not 0), DLPF, NAG, RGD, NAdam, SWATS, AdamW. All of them can be used as any other `torch.optim.Optimizer`
 
 ```python
-from optimizers import RAD, Adam, SGD, DLPF, RGD, NAG, NAdam, SWATS, AdamW
+from rad.optim import RAD, Adam, SGD, DLPF, RGD, NAG, NAdam, SWATS, AdamW
 
 # Example usage:
 rad_optim = RAD(net.parameters(), lr=0.001, eps_annealing=max_iter)
