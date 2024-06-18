@@ -21,12 +21,14 @@ class RAD(Optimizer):
             limitation (default: 0)
         order (int, optional): precision of the approximation to the relativistic 
             Hamiltonian system (default: 1)
-        eps(float, optional): the final value of increasing sequence of eps_k, 
-            zeta_k = min(eps_k, 1-beta2^{k+1}) (default: 1)
-        eps_annealing (int, optional): the iteration number for the increasing 
-            sequence of eps_k to reach the final eps, usually set as max_iter; 
-            if set as 1, then eps_k = eps (default: 1)
-        weight_decay (float, optional): weight decay coefficient (default: 1e-2)
+        max_iter (int, optional): the maximum iteration number for training,
+          used to control the increasing sequence of eps_k to reach its highest 
+          value 1; if set as None, then zeta_k will anneal as 1-beta2^{k+1} 
+          (default: None, suggested: max_iter)
+        weight_decay (float, optional): weight decay coefficient (default: 0)
+        zeta (float, optional): the symplectic coefficient, None for annealing
+          as 1-beta2^{k+1}, positive value for fixed zeta (default: None)
+        bound_lr (float, optional): limit the upper and lower bounds of lr (default: None)
         amsgrad (boolean, optional): whether to use the AMSGrad variant (default: False)
         output_kinetic_energy (boolean, optional): whether to output the kinetic energy 
             of the system during training (default: False)
@@ -39,9 +41,10 @@ class RAD(Optimizer):
         betas=(0.9, 0.999),
         delta=1,
         order=1,
-        eps=1,
-        eps_annealing=1,
-        weight_decay=1e-2,
+        weight_decay=0,
+        max_iter=None,
+        zeta=None,
+        bound_lr=None,
         amsgrad=False,
         output_kinetic_energy=False,
     ):
@@ -55,10 +58,15 @@ class RAD(Optimizer):
             raise ValueError("Invalid delta value: {}".format(delta))
         if order not in [1, 2]:
             raise ValueError("Invalid order order: {}".format(order))
-        if not 0.0 <= eps:
-            raise ValueError("Invalid epsilon value: {}".format(eps))
-        if not 1 <= eps_annealing:
-            raise ValueError("Invalid eps_annealing value: {}".format(eps_annealing))
+        if max_iter is not None:
+            if not 0 < max_iter:
+                raise ValueError("Invalid max_iter value: {}".format(max_iter))
+        if zeta is not None:
+            if not 0.0 < zeta:
+                raise ValueError("Invalid epsilon value: {}".format(zeta))
+        if bound_lr is not None:
+            if not 0.0 < bound_lr:
+                raise ValueError("Invalid bound_lr value: {}".format(bound_lr))
         if not 0.0 <= weight_decay:
             raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
 
@@ -67,24 +75,31 @@ class RAD(Optimizer):
             betas=betas,
             delta=delta,
             order=order,
-            eps=eps,
-            eps_annealing=eps_annealing,
             weight_decay=weight_decay,
+            max_iter=max_iter,
+            zeta=zeta,
+            bound_lr=bound_lr,
             amsgrad=amsgrad,
             output_kinetic_energy=output_kinetic_energy,
         )
         super(RAD, self).__init__(params, defaults)
+        self.base_lrs = list(map(lambda group: group['lr'], self.param_groups))
 
     def __setstate__(self, state):
         super(RAD, self).__setstate__(state)
         for group in self.param_groups:
+            group.setdefault("max_iter", None)
+            group.setdefault("zeta", None)
+            group.setdefault("bound_lr", None)
             group.setdefault("amsgrad", False)
             group.setdefault("output_kinetic_energy", False)
 
-    def eps_annealing(self, x):
-        eps = np.clip(math.exp(12 * math.pi * (x - 1)), 0, 1)
+    def eps_annealing(self, step, max_iter):
+        eps_anneal = 2/3 * max_iter
+        exponent =  12 * math.pi * (step / eps_anneal - 1)
+        eps = math.exp(exponent) if exponent < 0 else 1
         return eps
-
+    
     @torch.no_grad()
     def step(self, closure=None):
         """Performs a single optimization step.
@@ -99,7 +114,7 @@ class RAD(Optimizer):
                 loss = closure()
 
         kinetic_energy = 0
-        for group in self.param_groups:
+        for group, base_lr in zip(self.param_groups, self.base_lrs):
             for p in group["params"]:
                 if p.grad is None:
                     continue
@@ -126,7 +141,10 @@ class RAD(Optimizer):
                 lr = group["lr"]
                 order = group["order"]
                 weight_decay = group["weight_decay"]
-
+                bound_lr = group["bound_lr"]
+                max_iter = group["max_iter"]
+                zeta = group["zeta"]
+                
                 # Perform stepweight decay
                 p.mul_(1 - lr * weight_decay)
 
@@ -134,12 +152,10 @@ class RAD(Optimizer):
                 bias_correction1 = 1 - beta1 ** state["step"]
                 bias_correction2 = 1 - beta2 ** state["step"]
 
-                eps = (
-                    group["eps"] * self.eps_annealing(state["step"] / group["eps_annealing"])
-                    if group["eps_annealing"] != 1
-                    else group["eps"]
-                )
-                zeta = np.clip(min(eps, bias_correction2), 1e-16, 1)
+                if zeta is None:
+                    eps = self.eps_annealing(state["step"], max_iter) if max_iter is not None else 1
+                    # zeta = np.clip(min(eps, bias_correction2), 1e-16, 1)
+                    zeta = np.clip(eps * bias_correction2, 1e-16, 1)
 
                 # Decay the first and second moment running average coefficient
                 exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
@@ -161,7 +177,15 @@ class RAD(Optimizer):
                         denom += 1 / torch.sqrt(exp_avg_sq * (delta**2) * 4 + 4 * zeta / (beta1**2))
                 denom *= math.sqrt(bias_correction2) / bias_correction1
 
-                p.addcmul_(exp_avg, denom, value=-lr)
+                if bound_lr is not None:
+                    final_lr = bound_lr * lr / base_lr
+                    lower_bound = final_lr * (1 - 1 / ((1 - beta2) * state['step'] + 1))
+                    upper_bound = final_lr * (1 + 1 / ((1 - beta2) * state['step']))
+                    step_size = torch.full_like(denom, lr)
+                    step_size.mul_(denom).clamp_(lower_bound, upper_bound).mul_(exp_avg)
+                    p.add_(step_size, alpha=-1)
+                else:
+                    p.addcmul_(exp_avg, denom, value=-lr)
 
                 kinetic_energy += (
                     lr / delta * torch.sum(torch.sqrt((exp_avg**2) / ((1 - beta1) ** 2) + 1 / (delta**2)))
