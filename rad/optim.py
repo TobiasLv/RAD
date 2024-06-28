@@ -72,6 +72,7 @@ class RAD(Optimizer):
 
         defaults = dict(
             lr=lr,
+            base_lr=lr,
             betas=betas,
             delta=delta,
             order=order,
@@ -83,7 +84,6 @@ class RAD(Optimizer):
             output_kinetic_energy=output_kinetic_energy,
         )
         super(RAD, self).__init__(params, defaults)
-        self.base_lrs = list(map(lambda group: group['lr'], self.param_groups))
 
     def __setstate__(self, state):
         super(RAD, self).__setstate__(state)
@@ -114,7 +114,7 @@ class RAD(Optimizer):
                 loss = closure()
 
         kinetic_energy = 0
-        for group, base_lr in zip(self.param_groups, self.base_lrs):
+        for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None:
                     continue
@@ -139,6 +139,7 @@ class RAD(Optimizer):
                 beta1, beta2 = group["betas"]
                 delta = group["delta"]
                 lr = group["lr"]
+                base_lr = group["base_lr"]
                 order = group["order"]
                 weight_decay = group["weight_decay"]
                 bound_lr = group["bound_lr"]
