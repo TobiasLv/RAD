@@ -95,8 +95,7 @@ class RAD(Optimizer):
             group.setdefault("output_kinetic_energy", False)
 
     def eps_annealing(self, step, max_iter):
-        eps_anneal = 2/3 * max_iter
-        exponent =  12 * math.pi * (step / eps_anneal - 1)
+        exponent =  12 * math.pi * (step / max_iter - 1)
         eps = math.exp(exponent) if exponent < 0 else 1
         return eps
     
