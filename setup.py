@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='pytorch-rad',
-    version='0.1.4',
+    version='0.1.5',
     author='iDLab',
     author_email='lyo.tobias@foxmail.com',
     description='A pytorch implementation of the optimizer RAD',
