@@ -1,6 +1,7 @@
 # RAD (Relativistic Adaptive Gradient Descent)
 
 This is the official repository of **Conformal Symplectic Optimization for Stable Reinforcement Learning**
+
 <a href='https://ieeexplore.ieee.org/document/10792938'>
     <img src='https://github.com/user-attachments/assets/80e4d671-51d7-46a3-b27a-08b5e08a3051' alt='IEEE Xplore' width=92>
 </a>
