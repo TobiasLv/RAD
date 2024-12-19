@@ -58,9 +58,9 @@ If you find this work useful, please consider giving us a star 🌟 and citing o
 
 ```bibtex
 @article{lyu2024conformal,
-  title={Conformal Symplectic Optimization for Stable Reinforcement Learning [early access]}, 
+  title={Conformal Symplectic Optimization for Stable Reinforcement Learning}, 
   author={Lyu, Yao and Zhang, Xiangteng and Li, Shengbo Eben and Duan, Jingliang and Tao, Letian and Xu, Qing and He, Lei and Li, Keqiang},
-  journal={IEEE Transactions on Neural Networks and Learning Systems},
+  journal={IEEE Transactions on Neural Networks and Learning Systems (early access)},
   publisher={IEEE},
   year={2024},
   volume={},
