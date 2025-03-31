@@ -60,11 +60,13 @@ If you find this work useful, please consider giving us a star 🌟 and citing o
 @article{lyu2024conformal,
   title={Conformal Symplectic Optimization for Stable Reinforcement Learning}, 
   author={Lyu, Yao and Zhang, Xiangteng and Li, Shengbo Eben and Duan, Jingliang and Tao, Letian and Xu, Qing and He, Lei and Li, Keqiang},
-  journal={IEEE Transactions on Neural Networks and Learning Systems (early access)},
+  journal={IEEE Transactions on Neural Networks and Learning Systems},
   publisher={IEEE},
   year={2024},
   volume={},
   number={},
   pages={1-15},
-  doi={10.1109/TNNLS.2024.3511670}}
+  doi={10.1109/TNNLS.2024.3511670},
+  note={Early Access}
+}
 ```
