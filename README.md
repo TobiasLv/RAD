@@ -57,16 +57,13 @@ Any user can find the supplementary in the "Supplementary materials" folder.
 If you find this work useful, please consider giving us a star 🌟 and citing our related paper.
 
 ```bibtex
-@article{lyu2024conformal,
-  title={Conformal Symplectic Optimization for Stable Reinforcement Learning}, 
+@ARTICLE{lyu2025conformal,
   author={Lyu, Yao and Zhang, Xiangteng and Li, Shengbo Eben and Duan, Jingliang and Tao, Letian and Xu, Qing and He, Lei and Li, Keqiang},
-  journal={IEEE Transactions on Neural Networks and Learning Systems},
-  publisher={IEEE},
-  year={2024},
-  volume={},
-  number={},
-  pages={1-15},
-  doi={10.1109/TNNLS.2024.3511670},
-  note={Early Access}
+  journal={IEEE Transactions on Neural Networks and Learning Systems}, 
+  title={Conformal Symplectic Optimization for Stable Reinforcement Learning}, 
+  year={2025},
+  volume={36},
+  number={6},
+  pages={11049-11063}
 }
 ```
