@@ -34,9 +34,8 @@ All optimizers have been implemented in the Python file "optimizers.py", includi
 from rad.optim import RAD, Adam, SGD, DLPF, RGD, NAG, NAdam, SWATS, AdamW, KFAdam, AdaBayes
 
 # Example usage:
-# max_iter is optional, but recommended for fast convergence,
-# usually as the maximum number of network updates.
-rad_optim = RAD(net.parameters(), lr=0.001, max_iter=max_iter)
+rad_optim = RAD(net.parameters(), lr=0.001) # A simple yet effective design without heavy manual engineering
+rad_optim = RAD(net.parameters(), lr=0.001, zeta=None, max_iter=max_iter) # zeta anneals with training iterations
 adam_optim = Adam(net.parameters(), lr=0.001)
 hb_optim = SGD(net.parameters(), lr=0.001, momentum=0.9)
 dlpf_optim = DLPF(net.parameters(), lr=0.001, momentum=0.9)
