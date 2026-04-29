@@ -48,7 +48,7 @@ class RAD(Optimizer):
         weight_decay=0,
         momentum_decay=4e-3,
         max_iter=None,
-        zeta=None,
+        zeta=1e-16,
         bound_lr=None,
         final_delta=None,
         amsgrad=False,
