@@ -26,7 +26,7 @@ class RAD(Optimizer):
           (default: None, suggested: max_iter)
         weight_decay (float, optional): weight decay coefficient (default: 0)
         zeta (float, optional): the symplectic coefficient, None for annealing
-          as 1-beta2^{k+1}, positive value for fixed zeta (default: None)
+          as 1-beta2^{k+1}, positive value for fixed zeta (default: 1e-16)
         bound_lr (float, optional): limit the upper and lower bounds of lr (default: None)
         final_delta (float, optional): the final value of delta, used to control
           the final value of delta, None for fixed delta (default: None)
