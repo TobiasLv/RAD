@@ -18,7 +18,7 @@ Alternatively, install directly from GitHub:
 pip install git+https://github.com/TobiasLv/RAD.git
 ```
 
-The package requires Python 3.6 or later, PyTorch, and NumPy.
+The package requires Python 3.8 or later, PyTorch, and NumPy.
 
 ## RAD-family optimizers
 
