@@ -45,7 +45,7 @@ optimizer = RAD(
 
 ### RADAR
 
-RADAR (Relativistic Adaptive Gradient Descent with Accelerated Residual) is developed from the ADMM-Inspired Momentum (AIM) framework, which interprets momentum as a multiplier-like correction driven by a splitting residual. It combines relativistic adaptive geometry, decoupled residual correction, and second-order momentum filtering to improve both update directions and momentum estimates. Experiments in vision learning, language modeling, and reinforcement learning show consistent improvements over strong adaptive-optimizer baselines.
+RADAR (Relativistic Adaptive Gradient Descent with Accelerated Residual) is developed from the ADMM-Inspired Momentum (AIM) framework, which interprets momentum as a multiplier-like correction driven by a splitting residual. It combines relativistic adaptive geometry, decoupled residual correction, and gradient-difference momentum filtering to improve both update directions and momentum estimates. Experiments in vision learning, language modeling, and reinforcement learning show consistent improvements over strong adaptive-optimizer baselines.
 
 ```python
 from rad.optim import RADAR
