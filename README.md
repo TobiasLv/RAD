@@ -147,7 +147,21 @@ RAD was introduced in **Conformal Symplectic Optimization for Stable Reinforceme
 
 RADAR is introduced in **Momentum as Residual-Driven Multiplier Correction for Deep Learning Optimization**.
 
-ArXiv paper and citation coming soon.
+<a href="http://arxiv.org/abs/2608.12925">
+    <img src="https://img.shields.io/badge/arXiv-PDF-red?style=flat&logo=arXiv&logoColor=white" alt="arXiv PDF">
+</a>
+
+```bibtex
+@misc{ren2026momentumresidualdrivenmultipliercorrection,
+      title={Momentum as Residual-Driven Multiplier Correction for Deep Learning Optimization}, 
+      author={Zhixin Ren and Yau Lyu and Congrong Li and Liping Zhang and Shengbo Eben Li},
+      year={2026},
+      eprint={2608.12925},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2608.12925}, 
+}
+```
 
 ## Repository organization
 
