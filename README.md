@@ -152,14 +152,11 @@ RADAR is introduced in **Momentum as Residual-Driven Multiplier Correction for D
 </a>
 
 ```bibtex
-@misc{ren2026momentumresidualdrivenmultipliercorrection,
-      title={Momentum as Residual-Driven Multiplier Correction for Deep Learning Optimization}, 
-      author={Zhixin Ren and Yau Lyu and Congrong Li and Liping Zhang and Shengbo Eben Li},
-      year={2026},
-      eprint={2608.12925},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2608.12925}, 
+@article{ren2026momentum,
+  title={Momentum as Residual-Driven Multiplier Correction for Deep Learning Optimization},
+  author={Ren, Zhixin and Lyu, Yao and Li, Congrong and Zhang, Liping and Li, Shengbo Eben},
+  journal={arXiv preprint arXiv:2608.12925},
+  year={2026}
 }
 ```
 
