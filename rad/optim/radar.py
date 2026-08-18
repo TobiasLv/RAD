@@ -25,15 +25,12 @@ class RADAR(Optimizer):
         l (float, optional):
             Residual correction step size.
 
-            If l is None, the optimizer dynamically uses
+            If l is None, the optimizer initializes
 
-                l_t = 0.01 * lr_t
+                l = 0.01 * initial_lr
 
-            where lr_t is the current learning rate. Therefore l_t
-            follows the learning-rate scheduler.
-
-            If a numerical value is explicitly provided, l remains
-            fixed at that value.
+            for each parameter group. The resulting value remains
+            fixed when a learning-rate scheduler changes lr.
 
         delta (float, optional):
             Scaling coefficient in the adaptive preconditioner.
@@ -132,6 +129,14 @@ class RADAR(Optimizer):
             defaults,
         )
 
+    def add_param_group(self, param_group):
+        """Add a parameter group and initialize its fixed residual step size."""
+        super().add_param_group(param_group)
+
+        group = self.param_groups[-1]
+        if group["l"] is None:
+            group["l"] = 0.01 * group["lr"]
+
     # ================================================================
     # Utility
     # ================================================================
@@ -171,6 +176,9 @@ class RADAR(Optimizer):
                 "l",
                 None,
             )
+
+            if group["l"] is None:
+                group["l"] = 0.01 * group["lr"]
 
             group.setdefault(
                 "delta",
@@ -1132,16 +1140,7 @@ class RADAR(Optimizer):
             # ========================================================
 
             lr = group["lr"]
-
-            if group["l"] is None:
-
-                l = (
-                    0.01 * lr
-                )
-
-            else:
-
-                l = group["l"]
+            l = group["l"]
 
             beta1, beta2 = (
                 group["betas"]
