@@ -199,6 +199,15 @@ class RADAR(Optimizer):
                         alpha=weight_decay,
                     )
 
+                # Decoupled weight decay
+                if (
+                    weight_decay != 0
+                    and decoupled_weight_decay
+                ):
+                    p.mul_(
+                        1 - lr * weight_decay
+                    )
+
                 # Bias correction
                 bias_correction1 = (
                     1 - beta1 ** state["step"]
@@ -277,15 +286,6 @@ class RADAR(Optimizer):
                     denom,
                     value=-l,
                 )
-
-                # Decoupled weight decay
-                if (
-                    weight_decay != 0
-                    and decoupled_weight_decay
-                ):
-                    p.mul_(
-                        1 - lr * weight_decay
-                    )
 
                 # Store current gradient
                 prev_grad.copy_(grad)
