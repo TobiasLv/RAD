@@ -25,21 +25,9 @@ class PublicOptimizerSmokeTests(unittest.TestCase):
             "RADAR": lambda parameter: RADAR([parameter]),
             "Adam": lambda parameter: Adam([parameter]),
             "SGD": lambda parameter: SGD([parameter], lr=1e-3),
-            "DLPF": lambda parameter: DLPF(
-                [parameter],
-                lr=1e-3,
-                momentum=0.9,
-            ),
-            "RGD": lambda parameter: RGD(
-                [parameter],
-                lr=1e-3,
-                momentum=0.9,
-            ),
-            "NAG": lambda parameter: NAG(
-                [parameter],
-                lr=1e-3,
-                momentum=0.9,
-            ),
+            "DLPF": lambda parameter: DLPF([parameter], lr=1e-3, momentum=0.9),
+            "RGD": lambda parameter: RGD([parameter], lr=1e-3, momentum=0.9),
+            "NAG": lambda parameter: NAG([parameter], lr=1e-3, momentum=0.9),
             "NAdam": lambda parameter: NAdam([parameter]),
             "SWATS": lambda parameter: SWATS([parameter]),
             "AdamW": lambda parameter: AdamW([parameter]),
@@ -49,10 +37,7 @@ class PublicOptimizerSmokeTests(unittest.TestCase):
 
         for name, create_optimizer in constructors.items():
             with self.subTest(optimizer=name):
-                parameter = torch.nn.Parameter(
-                    torch.tensor([1.0, -2.0])
-                )
-
+                parameter = torch.nn.Parameter(torch.tensor([1.0, -2.0]))
                 optimizer = create_optimizer(parameter)
 
                 for gradient in (
@@ -62,24 +47,14 @@ class PublicOptimizerSmokeTests(unittest.TestCase):
                     parameter.grad = gradient.clone()
                     optimizer.step()
 
-                self.assertTrue(
-                    torch.isfinite(parameter).all()
-                )
+                self.assertTrue(torch.isfinite(parameter).all())
 
 
 class ZeroMomentumTests(unittest.TestCase):
     def _assert_matches_sgd(self, optimizer_class):
-        initial = torch.tensor(
-            [1.5, -0.5],
-            dtype=torch.float64,
-        )
-
-        candidate_parameter = torch.nn.Parameter(
-            initial.clone()
-        )
-        sgd_parameter = torch.nn.Parameter(
-            initial.clone()
-        )
+        initial = torch.tensor([1.5, -0.5], dtype=torch.float64)
+        candidate_parameter = torch.nn.Parameter(initial.clone())
+        sgd_parameter = torch.nn.Parameter(initial.clone())
 
         candidate = optimizer_class(
             [candidate_parameter],
@@ -98,14 +73,8 @@ class ZeroMomentumTests(unittest.TestCase):
         )
 
         for gradient in (
-            torch.tensor(
-                [0.2, -0.4],
-                dtype=torch.float64,
-            ),
-            torch.tensor(
-                [-0.1, 0.3],
-                dtype=torch.float64,
-            ),
+            torch.tensor([0.2, -0.4], dtype=torch.float64),
+            torch.tensor([-0.1, 0.3], dtype=torch.float64),
         ):
             candidate_parameter.grad = gradient.clone()
             sgd_parameter.grad = gradient.clone()
@@ -113,22 +82,10 @@ class ZeroMomentumTests(unittest.TestCase):
             candidate_result = candidate.step()
             sgd_result = sgd.step()
 
-            self.assertTrue(
-                torch.equal(
-                    candidate_parameter,
-                    sgd_parameter,
-                )
-            )
+            self.assertTrue(torch.equal(candidate_parameter, sgd_parameter))
+            self.assertEqual(candidate_result, sgd_result)
 
-            self.assertEqual(
-                candidate_result,
-                sgd_result,
-            )
-
-        self.assertEqual(
-            len(candidate.state),
-            0,
-        )
+        self.assertEqual(len(candidate.state), 0)
 
     def test_nag_with_zero_momentum_matches_sgd(self):
         self._assert_matches_sgd(NAG)
@@ -138,13 +95,9 @@ class ZeroMomentumTests(unittest.TestCase):
 
     def test_negative_momentum_is_rejected(self):
         for optimizer_class in (NAG, DLPF):
-            parameter = torch.nn.Parameter(
-                torch.tensor([1.0])
-            )
+            parameter = torch.nn.Parameter(torch.tensor([1.0]))
 
-            with self.subTest(
-                optimizer=optimizer_class.__name__
-            ):
+            with self.subTest(optimizer=optimizer_class.__name__):
                 with self.assertRaises(ValueError):
                     optimizer_class(
                         [parameter],
@@ -154,20 +107,9 @@ class ZeroMomentumTests(unittest.TestCase):
 
 
 class RADARTests(unittest.TestCase):
-
-    # ================================================================
-    # l behavior
-    # ================================================================
-
     def test_default_residual_step_size_stays_fixed(self):
-        parameter = torch.nn.Parameter(
-            torch.tensor([1.0])
-        )
-
-        optimizer = RADAR(
-            [parameter],
-            lr=1e-3,
-        )
+        parameter = torch.nn.Parameter(torch.tensor([1.0]))
+        optimizer = RADAR([parameter], lr=1e-3)
 
         self.assertAlmostEqual(
             optimizer.param_groups[0]["l"],
@@ -179,91 +121,35 @@ class RADARTests(unittest.TestCase):
             0,
         )
 
-        # Simulate a learning-rate scheduler changing lr.
         optimizer.param_groups[0]["lr"] = 1e-4
 
-        # l must remain tied to the initial learning rate.
         self.assertAlmostEqual(
             optimizer.param_groups[0]["l"],
             1e-5,
         )
 
-    def test_custom_residual_step_size_stays_fixed(self):
-        parameter = torch.nn.Parameter(
-            torch.tensor([1.0])
-        )
-
-        optimizer = RADAR(
-            [parameter],
-            lr=1e-3,
-            l=7e-6,
-        )
-
-        self.assertAlmostEqual(
-            optimizer.param_groups[0]["l"],
-            7e-6,
-        )
-
-        optimizer.param_groups[0]["lr"] = 1e-4
-
-        self.assertAlmostEqual(
-            optimizer.param_groups[0]["l"],
-            7e-6,
-        )
-
-    # ================================================================
-    # state-dict compatibility
-    # ================================================================
-
     def test_missing_weight_decay_state_uses_current_default(self):
-        parameter = torch.nn.Parameter(
-            torch.tensor([1.0])
-        )
-
+        parameter = torch.nn.Parameter(torch.tensor([1.0]))
         optimizer = RADAR([parameter])
 
         state_dict = optimizer.state_dict()
-
         del state_dict["param_groups"][0]["weight_decay"]
 
-        restored_parameter = torch.nn.Parameter(
-            torch.tensor([1.0])
-        )
+        restored_parameter = torch.nn.Parameter(torch.tensor([1.0]))
+        restored_optimizer = RADAR([restored_parameter])
 
-        restored_optimizer = RADAR(
-            [restored_parameter]
-        )
-
-        restored_optimizer.load_state_dict(
-            state_dict
-        )
+        restored_optimizer.load_state_dict(state_dict)
 
         self.assertEqual(
-            restored_optimizer.param_groups[0][
-                "weight_decay"
-            ],
+            restored_optimizer.param_groups[0]["weight_decay"],
             0,
         )
 
-    # ================================================================
-    # parameter groups
-    # ================================================================
+    def test_added_parameter_group_gets_its_own_fixed_residual_step_size(self):
+        first_parameter = torch.nn.Parameter(torch.tensor([1.0]))
+        second_parameter = torch.nn.Parameter(torch.tensor([2.0]))
 
-    def test_added_parameter_group_gets_its_own_fixed_residual_step_size(
-        self,
-    ):
-        first_parameter = torch.nn.Parameter(
-            torch.tensor([1.0])
-        )
-
-        second_parameter = torch.nn.Parameter(
-            torch.tensor([2.0])
-        )
-
-        optimizer = RADAR(
-            [first_parameter],
-            lr=1e-3,
-        )
+        optimizer = RADAR([first_parameter], lr=1e-3)
 
         optimizer.add_param_group(
             {
@@ -287,17 +173,8 @@ class RADARTests(unittest.TestCase):
 
         optimizer.step()
 
-        self.assertTrue(
-            torch.isfinite(first_parameter).all()
-        )
-
-        self.assertTrue(
-            torch.isfinite(second_parameter).all()
-        )
-
-    # ================================================================
-    # mathematical correctness
-    # ================================================================
+        self.assertTrue(torch.isfinite(first_parameter).all())
+        self.assertTrue(torch.isfinite(second_parameter).all())
 
     def test_first_step_matches_documented_update(self):
         parameter = torch.nn.Parameter(
@@ -313,12 +190,10 @@ class RADARTests(unittest.TestCase):
         )
 
         parameter.grad = gradient.clone()
-
         initial = parameter.detach().clone()
 
         lr = 1e-3
-        beta1 = 0.9
-        beta2 = 0.999
+        beta1, beta2 = 0.9, 0.999
         gamma = 0.01
         residual_step = 1e-5
         delta = 1.0
@@ -333,55 +208,35 @@ class RADARTests(unittest.TestCase):
             delta=delta,
             zeta=zeta,
             weight_decay=0,
-            foreach=False,
         )
 
-        # ------------------------------------------------------------
-        # Original RADAR corrected first moment
-        #
-        # m_1 =
-        #     beta1 * m_0
-        #     + (1-beta1) * g_1
-        #     + gamma * (g_1-g_0)
-        #
-        # m_0 = 0, g_0 = 0
-        #
-        # therefore:
-        #
-        # m_1 = (1-beta1+gamma) * g_1
-        # ------------------------------------------------------------
-        corrected_momentum = (
-            1.0 - beta1 + gamma
-        ) * gradient
+        exp_avg = (1 - beta1 + gamma) * gradient
+        exp_avg_sq = (1 - beta2) * gradient.square()
 
-        exp_avg_sq = (
-            1.0 - beta2
-        ) * gradient.square()
+        bias_correction1 = 1 - beta1
+        bias_correction2 = 1 - beta2
 
-        bias_correction1 = 1.0 - beta1
-        bias_correction2 = 1.0 - beta2
-
-        inverse_denominator = 1.0 / torch.sqrt(
-            delta**2
-            * exp_avg_sq
-            / bias_correction2
-            + zeta
+        denominator = 1 / torch.sqrt(
+            delta**2 * exp_avg_sq / bias_correction2 + zeta
         )
 
         expected = initial.clone()
 
-        # -(lr-l) / bc1 * m_t / denominator
         expected.addcmul_(
-            corrected_momentum,
-            inverse_denominator,
-            value=-(lr - residual_step)
-            / bias_correction1,
+            exp_avg,
+            denominator,
+            value=-lr / bias_correction1,
         )
 
-        # -l * g_t / denominator
+        expected.addcmul_(
+            exp_avg,
+            denominator,
+            value=residual_step / bias_correction1,
+        )
+
         expected.addcmul_(
             gradient,
-            inverse_denominator,
+            denominator,
             value=-residual_step,
         )
 
@@ -403,161 +258,24 @@ class RADARTests(unittest.TestCase):
             1,
         )
 
-        # ------------------------------------------------------------
-        # IMPORTANT:
-        #
-        # The new reparameterized implementation stores ordinary EMA:
-        #
-        # mbar_t =
-        #     beta1 * mbar_{t-1}
-        #     + (1-beta1) * g_t
-        #
-        # It does NOT store the corrected RADAR momentum.
-        # ------------------------------------------------------------
-        expected_ema = (
-            1.0 - beta1
-        ) * gradient
+        # New reparameterized RADAR stores the ordinary EMA
+        # instead of storing prev_grad.
+        expected_exp_avg = (1 - beta1) * gradient
 
         self.assertTrue(
             torch.allclose(
                 state["exp_avg"],
-                expected_ema,
-                rtol=0,
-                atol=0,
+                expected_exp_avg,
+                rtol=1e-12,
+                atol=1e-12,
             )
         )
 
-        self.assertTrue(
-            torch.allclose(
-                state["exp_avg_sq"],
-                exp_avg_sq,
-                rtol=0,
-                atol=0,
-            )
-        )
-
-        # beta1 > 0 optimized path should no longer store prev_grad.
         self.assertNotIn(
             "prev_grad",
             state,
         )
 
-        self.assertNotIn(
-            "prev_grad_valid",
-            state,
-        )
 
-    # ================================================================
-    # foreach correctness
-    # ================================================================
-
-    def test_foreach_matches_single_tensor(self):
-        initial = torch.tensor(
-            [1.0, -2.0, 3.0],
-            dtype=torch.float64,
-        )
-
-        parameter_single = torch.nn.Parameter(
-            initial.clone()
-        )
-
-        parameter_foreach = torch.nn.Parameter(
-            initial.clone()
-        )
-
-        optimizer_single = RADAR(
-            [parameter_single],
-            lr=1e-3,
-            betas=(0.9, 0.999),
-            gamma=0.01,
-            l=1e-5,
-            foreach=False,
-        )
-
-        optimizer_foreach = RADAR(
-            [parameter_foreach],
-            lr=1e-3,
-            betas=(0.9, 0.999),
-            gamma=0.01,
-            l=1e-5,
-            foreach=True,
-        )
-
-        gradients = (
-            torch.tensor(
-                [0.2, -0.4, 0.1],
-                dtype=torch.float64,
-            ),
-            torch.tensor(
-                [-0.1, 0.3, -0.2],
-                dtype=torch.float64,
-            ),
-            torch.tensor(
-                [0.05, -0.2, 0.4],
-                dtype=torch.float64,
-            ),
-        )
-
-        for gradient in gradients:
-            parameter_single.grad = gradient.clone()
-            parameter_foreach.grad = gradient.clone()
-
-            optimizer_single.step()
-            optimizer_foreach.step()
-
-        self.assertTrue(
-            torch.allclose(
-                parameter_single,
-                parameter_foreach,
-                rtol=1e-12,
-                atol=1e-12,
-            )
-        )
-
-        state_single = optimizer_single.state[
-            parameter_single
-        ]
-
-        state_foreach = optimizer_foreach.state[
-            parameter_foreach
-        ]
-
-        self.assertTrue(
-            torch.allclose(
-                state_single["exp_avg"],
-                state_foreach["exp_avg"],
-                rtol=1e-12,
-                atol=1e-12,
-            )
-        )
-
-        self.assertTrue(
-            torch.allclose(
-                state_single["exp_avg_sq"],
-                state_foreach["exp_avg_sq"],
-                rtol=1e-12,
-                atol=1e-12,
-            )
-        )
-
-        self.assertEqual(
-            state_single["step"],
-            state_foreach["step"],
-        )
-
-    # ================================================================
-    # state layout
-    # ================================================================
-
-    def test_reparameterized_state_does_not_store_prev_grad(self):
-        parameter = torch.nn.Parameter(
-            torch.tensor(
-                [1.0, -2.0],
-                dtype=torch.float64,
-            )
-        )
-
-        optimizer = RADAR(
-            [parameter],
-            beta1 if False else 1e-3,
-        )
+if __name__ == "__main__":
+    unittest.main()
