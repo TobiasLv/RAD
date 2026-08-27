@@ -40,7 +40,13 @@ class RADAR(Optimizer):
 
         foreach (bool, optional):
             Whether to use the multi-tensor foreach implementation.
+            Falls back to the single-tensor path when unavailable.
             Default: True.
+
+    Note:
+        Parameters stored directly as torch.float16 are not supported. Use
+        automatic mixed precision with FP32 parameters. BF16 may be used when
+        it is supported by the installed PyTorch version and device.
     """
 
     def __init__(
@@ -135,36 +141,29 @@ class RADAR(Optimizer):
         exp_avg = p_state.get("exp_avg", None)
 
         if exp_avg is None:
-            p_state.pop("prev_grad", None)
-            p_state.pop("prev_grad_valid", None)
-            return
-
-        if beta1 > 0.0:
-            if gamma != 0.0:
-                ratio = gamma / beta1
-                ema_scale = 1.0 - ratio
-
-                # If ema_scale == 0, the reconstructed corrected moment no
-                # longer depends on the EMA, so the historical EMA value is
-                # irrelevant for future updates. Reset it safely.
-                if ema_scale == 0.0:
-                    exp_avg.zero_()
-                else:
-                    exp_avg.add_(prev_grad, alpha=-ratio)
-                    exp_avg.div_(ema_scale)
-
-            # gamma == 0: legacy exp_avg is already the ordinary EMA.
-            p_state.pop("prev_grad", None)
-            p_state.pop("prev_grad_valid", None)
-
-        else:
-            # beta1 == 0 fallback stores previous effective gradient in
-            # exp_avg, so copy legacy prev_grad into exp_avg.
-            exp_avg.copy_(prev_grad)
-            p_state.pop("prev_grad", None)
-            p_state["prev_grad_valid"] = bool(
-                p_state.get("prev_grad_valid", True)
+            raise RuntimeError(
+                "Invalid RADAR checkpoint: state contains prev_grad "
+                "but no exp_avg."
             )
+
+        if beta1 == 0.0:
+            exp_avg.copy_(prev_grad)
+        elif gamma != 0.0:
+            ema_scale = beta1 - gamma
+
+            # When beta1 == gamma, the corrected moment no longer depends on
+            # the ordinary EMA, so that historical EMA cannot be recovered
+            # and is irrelevant while the hyperparameters remain fixed.
+            if ema_scale == 0.0:
+                exp_avg.zero_()
+            else:
+                exp_avg.mul_(beta1)
+                exp_avg.add_(prev_grad, alpha=-gamma)
+                exp_avg.div_(ema_scale)
+
+        # gamma == 0: legacy exp_avg is already the ordinary EMA.
+        p_state.pop("prev_grad", None)
+        p_state.pop("prev_grad_valid", None)
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -181,7 +180,7 @@ class RADAR(Optimizer):
             group.setdefault("decoupled_weight_decay", True)
 
             if group.get("foreach") is None:
-                group["foreach"] = True
+                group["foreach"] = self.defaults.get("foreach", True)
 
             beta1, _ = group["betas"]
             gamma = group["gamma"]
@@ -200,10 +199,17 @@ class RADAR(Optimizer):
                     gamma,
                 )
 
-                if beta1 == 0.0:
-                    p_state.setdefault("prev_grad_valid", True)
-                else:
-                    p_state.pop("prev_grad_valid", None)
+                p_state.pop("prev_grad_valid", None)
+
+    @staticmethod
+    def _can_use_foreach():
+        return callable(
+            getattr(
+                Optimizer,
+                "_group_tensors_by_device_and_dtype",
+                None,
+            )
+        )
 
     @staticmethod
     def _single_tensor_radar_reparameterized(
@@ -212,6 +218,8 @@ class RADAR(Optimizer):
         exp_avgs,
         exp_avg_sqs,
         steps,
+        uniform_step,
+        uniform_step_value,
         *,
         lr,
         beta1,
@@ -224,8 +232,29 @@ class RADAR(Optimizer):
         decoupled_weight_decay,
     ):
         delta_sq = delta * delta
-        gamma_ratio = gamma / beta1
-        ema_coefficient = 1.0 - gamma_ratio
+        ema_alpha = 1.0 - beta1
+        second_moment_alpha = 1.0 - beta2
+        previous_ema_coefficient = beta1 - gamma
+        gradient_coefficient = 1.0 - beta1 + gamma
+        decay_factor = 1.0 - lr * weight_decay
+
+        if uniform_step:
+            bias_correction1 = 1.0 - beta1 ** uniform_step_value
+            bias_correction2 = 1.0 - beta2 ** uniform_step_value
+            denominator_shift = zeta * bias_correction2 / delta_sq
+            preconditioner_scale = bias_correction2 ** 0.5 / delta
+            base_step_size = (
+                -(lr - l)
+                / bias_correction1
+                * preconditioner_scale
+            )
+            previous_ema_step_size = (
+                base_step_size * previous_ema_coefficient
+            )
+            gradient_step_size = (
+                base_step_size * gradient_coefficient
+                - l * preconditioner_scale
+            )
 
         for p, grad, exp_avg, exp_avg_sq, step in zip(
             params,
@@ -239,59 +268,44 @@ class RADAR(Optimizer):
             # ----------------------------------------------------------
             if weight_decay != 0.0:
                 if decoupled_weight_decay:
-                    p.mul_(1.0 - lr * weight_decay)
+                    p.mul_(decay_factor)
                 else:
                     grad = grad.add(p, alpha=weight_decay)
 
-            # ----------------------------------------------------------
-            # Bias correction
-            # ----------------------------------------------------------
-            bias_correction1 = 1.0 - beta1 ** step
-            bias_correction2 = 1.0 - beta2 ** step
-
-            # ----------------------------------------------------------
-            # Ordinary EMA only:
-            # mbar_t = beta1*mbar_{t-1} + (1-beta1)*g_t
-            # ----------------------------------------------------------
-            exp_avg.lerp_(grad, 1.0 - beta1)
+            if not uniform_step:
+                bias_correction1 = 1.0 - beta1 ** step
+                bias_correction2 = 1.0 - beta2 ** step
+                denominator_shift = zeta * bias_correction2 / delta_sq
+                preconditioner_scale = bias_correction2 ** 0.5 / delta
+                base_step_size = (
+                    -(lr - l)
+                    / bias_correction1
+                    * preconditioner_scale
+                )
+                previous_ema_step_size = (
+                    base_step_size * previous_ema_coefficient
+                )
+                gradient_step_size = (
+                    base_step_size * gradient_coefficient
+                    - l * preconditioner_scale
+                )
 
             # ----------------------------------------------------------
             # Second moment
             # ----------------------------------------------------------
             exp_avg_sq.mul_(beta2)
-            exp_avg_sq.addcmul_(grad, grad, value=1.0 - beta2)
+            exp_avg_sq.addcmul_(grad, grad, value=second_moment_alpha)
 
             # ----------------------------------------------------------
             # denominator = sqrt(v_t + zeta * bc2 / delta^2)
             # ----------------------------------------------------------
-            denominator = exp_avg_sq.add(
-                zeta * bias_correction2 / delta_sq
-            )
+            denominator = exp_avg_sq.add(denominator_shift)
             denominator.sqrt_()
-
-            preconditioner_scale = bias_correction2 ** 0.5 / delta
-
-            momentum_step_size = (
-                -(lr - l)
-                / bias_correction1
-                * preconditioner_scale
-                * ema_coefficient
-            )
-
-            gradient_step_size = (
-                -preconditioner_scale
-                * (
-                    l
-                    + (lr - l)
-                    / bias_correction1
-                    * gamma_ratio
-                )
-            )
 
             p.addcdiv_(
                 exp_avg,
                 denominator,
-                value=momentum_step_size,
+                value=previous_ema_step_size,
             )
 
             p.addcdiv_(
@@ -300,105 +314,12 @@ class RADAR(Optimizer):
                 value=gradient_step_size,
             )
 
-    # ================================================================
-    # beta1 == 0 fallback
-    # ================================================================
-
-    @staticmethod
-    def _single_tensor_radar_beta1_zero(
-        params,
-        grads,
-        exp_avgs,
-        exp_avg_sqs,
-        prev_grad_valids,
-        steps,
-        *,
-        lr,
-        beta2,
-        gamma,
-        l,
-        delta,
-        zeta,
-        weight_decay,
-        decoupled_weight_decay,
-    ):
-        """Exact beta1 == 0 fallback using exp_avg as previous gradient."""
-        delta_sq = delta * delta
-
-        for (
-            p,
-            grad,
-            prev_grad,
-            exp_avg_sq,
-            prev_grad_valid,
-            step,
-        ) in zip(
-            params,
-            grads,
-            exp_avgs,
-            exp_avg_sqs,
-            prev_grad_valids,
-            steps,
-        ):
-            if weight_decay != 0.0:
-                if decoupled_weight_decay:
-                    p.mul_(1.0 - lr * weight_decay)
-                else:
-                    grad = grad.add(p, alpha=weight_decay)
-
-            bias_correction2 = 1.0 - beta2 ** step
-
-            exp_avg_sq.mul_(beta2)
-            exp_avg_sq.addcmul_(grad, grad, value=1.0 - beta2)
-
-            denominator = exp_avg_sq.add(
-                zeta * bias_correction2 / delta_sq
-            )
-            denominator.sqrt_()
-
-            preconditioner_scale = bias_correction2 ** 0.5 / delta
-
-            if prev_grad_valid and gamma != 0.0:
-                # beta1 = 0:
-                # corrected m_t = (1 + gamma) * g_t - gamma * g_{t-1}
-                prev_grad_step_size = (
-                    (lr - l)
-                    * gamma
-                    * preconditioner_scale
-                )
-
-                gradient_step_size = (
-                    -preconditioner_scale
-                    * (
-                        (lr - l) * (1.0 + gamma)
-                        + l
-                    )
-                )
-
-                p.addcdiv_(
-                    prev_grad,
-                    denominator,
-                    value=prev_grad_step_size,
-                )
-
-                p.addcdiv_(
-                    grad,
-                    denominator,
-                    value=gradient_step_size,
-                )
-            else:
-                # Initial/recovered no-residual step when legacy semantics
-                # require the residual correction to be skipped.
-                p.addcdiv_(
-                    grad,
-                    denominator,
-                    value=-lr * preconditioner_scale,
-                )
-
-            prev_grad.copy_(grad)
+            # Store only the ordinary EMA. The corrected RADAR moment used
+            # above is reconstructed from the previous EMA and current grad.
+            exp_avg.lerp_(grad, ema_alpha)
 
     # ================================================================
-    # beta1 > 0: foreach implementation for one device/dtype bucket
+    # Foreach implementation for one device/dtype bucket
     # ================================================================
 
     @staticmethod
@@ -444,15 +365,6 @@ class RADAR(Optimizer):
                 )
 
         # ------------------------------------------------------------
-        # Ordinary EMA only.  No prev_grad and no residual kernels.
-        # ------------------------------------------------------------
-        torch._foreach_lerp_(
-            exp_avgs,
-            grads,
-            1.0 - beta1,
-        )
-
-        # ------------------------------------------------------------
         # Second moment
         # ------------------------------------------------------------
         torch._foreach_mul_(
@@ -468,9 +380,6 @@ class RADAR(Optimizer):
         )
 
         delta_sq = delta * delta
-        gamma_ratio = gamma / beta1
-        ema_coefficient = 1.0 - gamma_ratio
-
         # ------------------------------------------------------------
         # Fast path: same active-step counter for all tensors in bucket.
         # ------------------------------------------------------------
@@ -494,28 +403,26 @@ class RADAR(Optimizer):
                 bias_correction2 ** 0.5 / delta
             )
 
-            momentum_step_size = (
+            base_step_size = (
                 -(lr - l)
                 / bias_correction1
                 * preconditioner_scale
-                * ema_coefficient
+            )
+
+            previous_ema_step_size = (
+                base_step_size * (beta1 - gamma)
             )
 
             gradient_step_size = (
-                -preconditioner_scale
-                * (
-                    l
-                    + (lr - l)
-                    / bias_correction1
-                    * gamma_ratio
-                )
+                base_step_size * (1.0 - beta1 + gamma)
+                - l * preconditioner_scale
             )
 
             torch._foreach_addcdiv_(
                 params,
                 exp_avgs,
                 denominators,
-                momentum_step_size,
+                previous_ema_step_size,
             )
 
             torch._foreach_addcdiv_(
@@ -560,12 +467,11 @@ class RADAR(Optimizer):
                 for bc2 in bias_correction2
             ]
 
-            momentum_step_sizes = [
+            base_step_sizes = [
                 -(
                     (lr - l)
                     / bc1
                     * scale
-                    * ema_coefficient
                 )
                 for bc1, scale in zip(
                     bias_correction1,
@@ -573,16 +479,16 @@ class RADAR(Optimizer):
                 )
             ]
 
+            previous_ema_step_sizes = [
+                base * (beta1 - gamma)
+                for base in base_step_sizes
+            ]
+
             gradient_step_sizes = [
-                -scale
-                * (
-                    l
-                    + (lr - l)
-                    / bc1
-                    * gamma_ratio
-                )
-                for bc1, scale in zip(
-                    bias_correction1,
+                base * (1.0 - beta1 + gamma)
+                - l * scale
+                for base, scale in zip(
+                    base_step_sizes,
                     preconditioner_scales,
                 )
             ]
@@ -591,7 +497,7 @@ class RADAR(Optimizer):
                 params,
                 exp_avgs,
                 denominators,
-                momentum_step_sizes,
+                previous_ema_step_sizes,
             )
 
             torch._foreach_addcdiv_(
@@ -600,6 +506,12 @@ class RADAR(Optimizer):
                 denominators,
                 gradient_step_sizes,
             )
+
+        torch._foreach_lerp_(
+            exp_avgs,
+            grads,
+            1.0 - beta1,
+        )
 
         del denominators
 
@@ -626,7 +538,7 @@ class RADAR(Optimizer):
                 exp_avgs,
                 exp_avg_sqs,
             ],
-            with_indices=True,
+            with_indices=not uniform_step,
         )
 
         for device_tensor_lists, indices in grouped_tensors.values():
@@ -661,35 +573,19 @@ class RADAR(Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        for group in self.param_groups:
-            beta1, beta2 = group["betas"]
+        # Gather and validate every active parameter before updating state or
+        # parameters. The gathered lists are reused by the update phase so
+        # each parameter group is scanned only once.
+        prepared_groups = []
 
+        for group in self.param_groups:
             params = []
             grads = []
-            exp_avgs = []
-            exp_avg_sqs = []
-            steps = []
 
-            # Only used by the beta1 == 0 fallback.
-            prev_grad_valids = []
-
-            uniform_step = True
-            first_step = None
-
-            # --------------------------------------------------------
-            # Gather active parameters
-            # --------------------------------------------------------
             for p in group["params"]:
                 grad: Tensor = p.grad
 
                 if grad is None:
-                    # beta1 > 0 optimized path treats missing optimizer steps
-                    # as absent observations in the active-gradient sequence.
-                    # beta1 == 0 fallback can preserve the old one-step skip.
-                    if beta1 == 0.0:
-                        state = self.state.get(p, None)
-                        if state:
-                            state["prev_grad_valid"] = False
                     continue
 
                 if grad.is_sparse:
@@ -697,17 +593,48 @@ class RADAR(Optimizer):
                         "RADAR does not support sparse gradients."
                     )
 
-                if torch.is_complex(p):
+                dtype = p.dtype
+
+                if dtype.is_complex:
                     raise RuntimeError(
                         "RADAR does not currently support complex parameters."
                     )
 
-                state = self.state[p]
+                if dtype == torch.float16:
+                    raise RuntimeError(
+                        "RADAR does not currently support float16 parameters; "
+                        "use AMP with float32 parameters."
+                    )
+
+                params.append(p)
+                grads.append(grad)
+
+            if params:
+                prepared_groups.append((group, params, grads))
+
+        foreach_available = None
+        state_by_parameter = self.state
+        migrate_legacy_state = self._migrate_legacy_param_state_
+        step_to_int = self._step_to_int
+
+        for group, params, grads in prepared_groups:
+            beta1, beta2 = group["betas"]
+            gamma = group["gamma"]
+
+            exp_avgs = []
+            exp_avg_sqs = []
+            steps = []
+
+            uniform_step = True
+            first_step = None
+
+            for p in params:
+                state = state_by_parameter[p]
 
                 # ----------------------------------------------------
                 # Lazy initialization
                 # ----------------------------------------------------
-                if len(state) == 0:
+                if not state:
                     state["step"] = 0
 
                     state["exp_avg"] = torch.zeros_like(
@@ -720,50 +647,36 @@ class RADAR(Optimizer):
                         memory_format=torch.preserve_format,
                     )
 
-                    if beta1 == 0.0:
-                        # In this rare fallback exp_avg stores prev_grad.
-                        state["prev_grad_valid"] = True
-
                 else:
                     # Safety for states loaded without __setstate__ migration.
                     if "prev_grad" in state:
-                        self._migrate_legacy_param_state_(
+                        migrate_legacy_state(
                             state,
                             beta1,
-                            group["gamma"],
+                            gamma,
                         )
 
-                    state["step"] = self._step_to_int(state["step"])
-
-                if beta1 == 0.0:
-                    prev_grad_valids.append(
-                        bool(state.get("prev_grad_valid", True))
-                    )
-
-                state["step"] += 1
                 step = state["step"]
+                if not isinstance(step, int):
+                    step = step_to_int(step)
+
+                step += 1
+                state["step"] = step
 
                 if first_step is None:
                     first_step = step
                 elif step != first_step:
                     uniform_step = False
 
-                params.append(p)
-                grads.append(grad)
                 exp_avgs.append(state["exp_avg"])
                 exp_avg_sqs.append(state["exp_avg_sq"])
                 steps.append(step)
 
-                if beta1 == 0.0:
-                    state["prev_grad_valid"] = True
-
-            if len(params) == 0:
-                continue
-
             kwargs = dict(
                 lr=group["lr"],
+                beta1=beta1,
                 beta2=beta2,
-                gamma=group["gamma"],
+                gamma=gamma,
                 l=group["l"],
                 delta=group["delta"],
                 zeta=group["zeta"],
@@ -773,27 +686,13 @@ class RADAR(Optimizer):
                 ],
             )
 
-            # --------------------------------------------------------
-            # beta1 == 0: exact rare fallback.
-            # --------------------------------------------------------
-            if beta1 == 0.0:
-                self._single_tensor_radar_beta1_zero(
-                    params,
-                    grads,
-                    exp_avgs,
-                    exp_avg_sqs,
-                    prev_grad_valids,
-                    steps,
-                    **kwargs,
-                )
-                continue
+            use_foreach = group["foreach"]
+            if use_foreach:
+                if foreach_available is None:
+                    foreach_available = self._can_use_foreach()
+                use_foreach = foreach_available
 
-            # --------------------------------------------------------
-            # beta1 > 0: optimized reparameterized RADAR.
-            # --------------------------------------------------------
-            kwargs["beta1"] = beta1
-
-            if group["foreach"]:
+            if use_foreach:
                 self._multi_tensor_radar_reparameterized(
                     params,
                     grads,
@@ -811,6 +710,8 @@ class RADAR(Optimizer):
                     exp_avgs,
                     exp_avg_sqs,
                     steps,
+                    uniform_step,
+                    first_step,
                     **kwargs,
                 )
 

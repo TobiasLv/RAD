@@ -95,6 +95,11 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 )
 ```
 
+RADAR does not currently support parameters stored directly as `torch.float16`.
+For mixed-precision training, keep optimizer parameters in FP32, as in standard
+automatic mixed precision. BF16 parameters may be used where they are supported
+by the installed PyTorch version and device.
+
 ## Available optimizers
 
 All optimizers can be imported from `rad.optim`:
